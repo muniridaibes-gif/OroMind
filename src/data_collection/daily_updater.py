@@ -1,75 +1,84 @@
+import schedule
+import time
 import pandas as pd
+from datetime import datetime, timedelta
 import requests
-from datetime import datetime
 import logging
+from google.colab import files
 
 class DailyUpdater:
     def __init__(self, api_key):
         self.api_key = api_key
         self.setup_logging()
-    
+        
     def setup_logging(self):
         """إعداد نظام التسجيل"""
         logging.basicConfig(
+            filename='data_update.log',
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s'
         )
     
-    def initialize_daily_file(self):
-        """
-        إنشاء ملف التحديثات اليومية الأولي
-        """
+    def update_gold_prices(self):
+        """تحديث أسعار الذهب اليومية"""
         try:
-            # إنشاء DataFrame بهيكل واضح
-            columns = [
-                'datetime', 'open', 'high', 'low', 'close', 'volume',
-                'update_type', 'data_source', 'timestamp'
-            ]
+            url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1day&outputsize=2&apikey={self.api_key}"
+            response = requests.get(url)
+            data = response.json()
             
-            daily_df = pd.DataFrame(columns=columns)
-            
-            # حفظ الملف
-            file_path = "../data/raw/gold/gold_daily_updates.csv"
-            daily_df.to_csv(file_path, index=False)
-            
-            logging.info(f"✅ تم إنشاء {file_path} بنجاح")
-            return True
-            
+            if "values" in data:
+                new_data = pd.DataFrame(data["values"])
+                new_data = new_data.iloc[::-1]
+                
+                # تحميل البيانات القديمة
+                historical_data = pd.read_csv('../data/raw/gold/gold_historical_7148_days.csv')
+                
+                # دمج البيانات الجديدة
+                updated_data = pd.concat([historical_data, new_data], ignore_index=True)
+                updated_data = updated_data.drop_duplicates('datetime')
+                
+                # حفظ البيانات المحدثة
+                updated_data.to_csv('../data/raw/gold/gold_historical_updated.csv', index=False)
+                
+                logging.info(f"✅ تم تحديث بيانات الذهب: {len(new_data)} يوم جديد")
+                return True
+                
         except Exception as e:
-            logging.error(f"❌ خطأ في إنشاء الملف: {str(e)}")
+            logging.error(f"❌ خطأ في تحديث الذهب: {str(e)}")
             return False
     
-    def add_daily_update(self, new_data):
-        """
-        إضافة تحديث يومي جديد للملف
-        """
+    def update_news(self):
+        """تحديث الأخبار اليومية"""
         try:
-            # تحميل الملف الحالي
-            daily_df = pd.read_csv("../data/raw/gold/gold_daily_updates.csv")
+            # كود جمع الأخبار الذي لديك
+            news_df = self.collect_daily_news()
+            news_df.to_csv('../data/raw/news/daily_news.csv', mode='a', header=False)
             
-            # إضافة البيانات الجديدة
-            updated_df = pd.concat([daily_df, new_data], ignore_index=True)
-            
-            # حفظ الملف المحدث
-            updated_df.to_csv("../data/raw/gold/gold_daily_updates.csv", index=False)
-            
-            logging.info(f"📈 تم إضافة {len(new_data)} تحديث جديد")
+            logging.info(f"✅ تم تحديث الأخبار: {len(news_df)} خبر جديد")
             return True
             
         except Exception as e:
-            logging.error(f"❌ خطأ في إضافة التحديث: {str(e)}")
+            logging.error(f"❌ خطأ في تحديث الأخبار: {str(e)}")
             return False
+    
+    def run_daily_updates(self):
+        """تشغيل التحديثات اليومية"""
+        logging.info("🚀 بدء التحديثات اليومية")
+        
+        # جدولة المهام
+        schedule.every().day.at("08:00").do(self.update_gold_prices)
+        schedule.every().hour().do(self.update_news)
+        
+        while True:
+            schedule.run_pending()
+            time.sleep(60)
 
-# التشغيل المباشر
+# ✅ التشغيل الفوري
 if __name__ == "__main__":
-    # Initialize updater
     updater = DailyUpdater("9fe19365755a4339ae1e7a1392fcd8e6")
     
-    # Create the initial file
-    success = updater.initialize_daily_file()
+    # تحديث فوري للاختبار
+    updater.update_gold_prices()
+    updater.update_news()
     
-    if success:
-        print("✅ تم إنشاء gold_daily_updates.csv بنجاح!")
-        print("📁 الملف جاهز للتحديثات اليومية المستقبلية")
-    else:
-        print("❌ فشل في إنشاء الملف")
+    print("✅ تم التحديث اليومي بنجاح!")
